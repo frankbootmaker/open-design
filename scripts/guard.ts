@@ -77,6 +77,9 @@ const residualAllowedExactPaths = new Set([
   // executed directly by Node and are not loaded by the app runtime.
   "scripts/import-prompt-templates.mjs",
   "scripts/postinstall.mjs",
+  // Self-hosted external renderer sidecar entrypoint. It runs directly in the
+  // dedicated Playwright container and is not part of the daemon/web TS build.
+  "deploy/renderer/server.mjs",
   // Checked-in bin shim so pnpm can link `od` before daemon dist output exists.
   "apps/daemon/bin/od.mjs",
   "apps/packaged/esbuild.config.mjs",
