@@ -1,6 +1,7 @@
 import type { Server } from 'node:http';
 
 import type { StartServerOptions } from './server.js';
+import { createExternalSlideRendererFromEnv } from './external-slide-renderer.js';
 
 type StartedServer = {
   server: Server;
@@ -160,12 +161,14 @@ export async function runDaemonCliStartup(argv: string[], options: { printHelp?:
     return;
   }
   const { host, open, port } = parsed.config;
+  const desktopSlideRenderer = createExternalSlideRendererFromEnv();
 
   const runtime = await startDaemonRuntime({
     host,
     logListening: true,
     openBrowser: open,
     port,
+    desktopSlideRenderer,
   });
   let shuttingDown = false;
   const stop = () => {
