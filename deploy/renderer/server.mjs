@@ -163,6 +163,81 @@ async function renderPage(input) {
 
     await waitForPage(page);
 
+    if (input.viewportOnly === true) {
+
+      const scroll = {
+
+        x: Math.max(0, Number(input.scrollX) || 0),
+
+        y: Math.max(0, Number(input.scrollY) || 0),
+
+        canvasX: Math.max(0, Number(input.canvasScrollX) || 0),
+
+        canvasY: Math.max(0, Number(input.canvasScrollY) || 0),
+
+      };
+
+
+
+      await page.evaluate((position) => {
+
+        window.scrollTo(position.x, position.y);
+
+        const canvas = document.querySelector('.design-canvas');
+
+        if (canvas && typeof canvas.scrollTo === 'function') {
+
+          canvas.scrollTo(position.canvasX, position.canvasY);
+
+        }
+
+      }, scroll);
+
+
+
+      await page.waitForTimeout(50);
+
+
+
+      const type=input.pageImageFormat==='jpeg'?'jpeg':'png';
+
+      const buffer=await page.screenshot({
+
+        type,
+
+        fullPage:false,
+
+        ...(type==='jpeg'?{quality:82}:{}),
+
+        animations:'disabled',
+
+        caret:'hide',
+
+      });
+
+
+
+      const mime=type==='jpeg'?'image/jpeg':'image/png';
+
+
+
+      return {
+
+        ok:true,
+
+        mode:'page',
+
+        width,
+
+        height,
+
+        slides:[`data:${mime};base64,${buffer.toString('base64')}`],
+
+      };
+
+    }
+
+
     const dimensions = await page.evaluate(() => {
       const root = document.documentElement;
       const body = document.body;

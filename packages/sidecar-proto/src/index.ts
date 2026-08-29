@@ -289,6 +289,12 @@ export type DesktopRenderSlidesInput = {
   // owns this directory and reads/deletes the files afterwards — this avoids
   // pushing tens of MB of base64 through the JSON IPC channel for large images.
   // desktop only writes to the absolute path it is given; it never derives it.
+  // Self-hosted/browser current-view screenshot support.
+  viewportOnly?: boolean;
+  scrollX?: number;
+  scrollY?: number;
+  canvasScrollX?: number;
+  canvasScrollY?: number;
   outputDir?: string;
 };
 

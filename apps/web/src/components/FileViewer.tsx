@@ -15051,6 +15051,45 @@ function HtmlViewer({
       return null;
     }
 
+    // Self-hosted web runtime: there is no Electron compositor and Chromium's
+    // in-iframe foreignObject snapshot can paint empty. For an ordinary page,
+    // ask the daemon renderer for exactly the current preview viewport instead.
+    if (
+      !imageDeckSignal &&
+      options?.wholeDeck !== true &&
+      projectId &&
+      file.name &&
+      !isOpenDesignHostAvailable()
+    ) {
+      const activeIframe =
+        iframeRef.current ??
+        srcDocPreviewIframeRef.current ??
+        urlPreviewIframeRef.current;
+
+      if (activeIframe) {
+        const width = Math.max(1, Math.round(activeIframe.clientWidth || 1440));
+        const height = Math.max(1, Math.round(activeIframe.clientHeight || 900));
+        const scroll = previewScrollPositionRef.current;
+
+        const rendered = await exportProjectImageDataUrl({
+          projectId,
+          fileName: file.name,
+          deck: false,
+          workspaceContext,
+          width,
+          height,
+          viewportOnly: true,
+          scrollX: Math.max(0, scroll.frameLeft),
+          scrollY: Math.max(0, scroll.frameTop),
+          canvasScrollX: Math.max(0, scroll.canvasLeft),
+          canvasScrollY: Math.max(0, scroll.canvasTop),
+        });
+
+        if (rendered.ok) return rendered.snapshot;
+        if ('error' in rendered) throw new Error(rendered.error);
+      }
+    }
+
     // Fallback: desktop compositor screenshot of the visible preview region.
     // Returns real rendered pixels and is never tainted, unlike the in-iframe
     // SVG-foreignObject bridge. Used on pure web (no host) or if the render
