@@ -555,6 +555,11 @@ type ScreenshotExportBody = {
   readonly title?: unknown;
   readonly versionId?: unknown;
   readonly width?: unknown;
+  readonly viewportOnly?: unknown;
+  readonly scrollX?: unknown;
+  readonly scrollY?: unknown;
+  readonly canvasScrollX?: unknown;
+  readonly canvasScrollY?: unknown;
 };
 
 type ScreenshotExportRequest = {
@@ -888,7 +893,19 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
     let renderOutputDir: string | null = null;
     let renderPreviewScope: string | null = null;
     try {
-      const { fileName, title, index, imageFormat, width, height } = body || {};
+      const {
+        fileName,
+        title,
+        index,
+        imageFormat,
+        width,
+        height,
+        viewportOnly,
+        scrollX,
+        scrollY,
+        canvasScrollX,
+        canvasScrollY,
+      } = body || {};
       if (typeof fileName !== 'string' || fileName.length === 0) {
         return sendApiError(res, 400, 'BAD_REQUEST', 'fileName required');
       }
@@ -904,6 +921,19 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
       }
       if (height != null && (typeof height !== 'number' || !Number.isFinite(height) || height <= 0)) {
         return sendApiError(res, 400, 'BAD_REQUEST', 'height must be a positive number');
+      }
+      if (viewportOnly != null && typeof viewportOnly !== 'boolean') {
+        return sendApiError(res, 400, 'BAD_REQUEST', 'viewportOnly must be a boolean');
+      }
+      for (const [name, value] of [
+        ['scrollX', scrollX],
+        ['scrollY', scrollY],
+        ['canvasScrollX', canvasScrollX],
+        ['canvasScrollY', canvasScrollY],
+      ] as const) {
+        if (value != null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) {
+          return sendApiError(res, 400, 'BAD_REQUEST', `${name} must be a non-negative number`);
+        }
       }
       if (typeof desktopSlideRenderer !== 'function') {
         if (format === 'image' && typeof desktopArtifactExporter === 'function') {
@@ -1011,6 +1041,11 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
       if (typeof title === 'string') renderOptions.title = title;
       if (typeof width === 'number') renderOptions.width = width;
       if (typeof height === 'number') renderOptions.height = height;
+      if (viewportOnly === true) renderOptions.viewportOnly = true;
+      if (typeof scrollX === 'number') renderOptions.scrollX = scrollX;
+      if (typeof scrollY === 'number') renderOptions.scrollY = scrollY;
+      if (typeof canvasScrollX === 'number') renderOptions.canvasScrollX = canvasScrollX;
+      if (typeof canvasScrollY === 'number') renderOptions.canvasScrollY = canvasScrollY;
       // Page-vs-deck is the caller's call, not a `.slide`-count guess: PPTX is
       // deck-only; image/PDF take the web's `effectiveDeck` signal so an ordinary
       // page that happens to contain `.slide` markup is still captured full-page.
@@ -1026,7 +1061,9 @@ export function registerProjectExportRoutes(app: Express, ctx: RegisterProjectEx
       // slides stitched into one tall image; an ordinary page is its full-page
       // capture. (A specific slide index is still honored if explicitly given.)
       if (format === 'image') {
-        if (typeof index === 'number' && Number.isInteger(index) && index >= 0) {
+        if (viewportOnly === true) {
+          // Current-view screenshot: one browser viewport, not the whole page.
+        } else if (typeof index === 'number' && Number.isInteger(index) && index >= 0) {
           renderOptions.index = index;
         } else {
           renderOptions.stitch = true;
