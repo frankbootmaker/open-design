@@ -8,6 +8,7 @@ import type {
   HostEditor,
   HostEditorId,
   HostEditorsResponse,
+  RemoteEditorHandoff,
 } from '@open-design/contracts';
 import {
   handoffTargetIdToTracking,
@@ -194,6 +195,55 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+function normalizeRemoteEditor(value: unknown): RemoteEditorHandoff | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const candidate = value as Partial<RemoteEditorHandoff>;
+  if (candidate.kind !== 'cursor-ssh') return null;
+  if (typeof candidate.host !== 'string' || !candidate.host.trim()) return null;
+  if (typeof candidate.projectsDir !== 'string' || !candidate.projectsDir.trim()) return null;
+  if (
+    typeof candidate.containerProjectsDir !== 'string' ||
+    !candidate.containerProjectsDir.trim()
+  ) {
+    return null;
+  }
+  return candidate as RemoteEditorHandoff;
+}
+
+function remoteProjectPath(
+  remote: RemoteEditorHandoff,
+  projectDir: string | null | undefined,
+  projectId: string,
+): string {
+  const remoteRoot = remote.projectsDir.replace(/\/+$/, '');
+  const containerRoot = remote.containerProjectsDir.replace(/\/+$/, '');
+  const normalizedProjectDir = projectDir?.replace(/\\/g, '/');
+
+  if (
+    normalizedProjectDir &&
+    (normalizedProjectDir === containerRoot ||
+      normalizedProjectDir.startsWith(`${containerRoot}/`))
+  ) {
+    return `${remoteRoot}${normalizedProjectDir.slice(containerRoot.length)}`;
+  }
+
+  return `${remoteRoot}/${projectId}`;
+}
+
+function cursorRemoteUri(
+  remote: RemoteEditorHandoff,
+  projectDir: string | null | undefined,
+  projectId: string,
+): string {
+  const remotePath = remoteProjectPath(remote, projectDir, projectId);
+  const encodedPath = remotePath
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+
+  return `cursor://vscode-remote/ssh-remote+${encodeURIComponent(remote.host)}${encodedPath}`;
+}
+
 const HOST_PLATFORMS: ReadonlyArray<HostEditorsResponse['platform']> = [
   'darwin',
   'win32',
@@ -362,6 +412,7 @@ export function HandoffButton({
     });
   };
   const [editors, setEditors] = useState<HostEditor[]>([]);
+  const [remoteEditor, setRemoteEditor] = useState<RemoteEditorHandoff | null>(null);
   const [platform, setPlatform] = useState<HostEditorsResponse['platform']>('unknown');
   const [loaded, setLoaded] = useState(false);
   const [open, setOpen] = useState(embedded);
@@ -385,12 +436,14 @@ export function HandoffButton({
         const body: Partial<HostEditorsResponse> | null =
           typeof resp === 'object' && resp !== null ? resp : null;
         setEditors(normalizeHostEditors(body?.editors));
+        setRemoteEditor(normalizeRemoteEditor(body?.remoteEditor));
         setPlatform(normalizeHostPlatform(body?.platform));
         setLoaded(true);
       })
       .catch(() => {
         if (cancelled) return;
         setEditors([]);
+        setRemoteEditor(null);
         setLoaded(true);
       });
     return () => {
@@ -427,8 +480,14 @@ export function HandoffButton({
     };
   }, []);
 
-  const available = editors.filter((e) => e.available);
-  const unavailable = editors.filter((e) => !e.available);
+  const effectiveEditors = remoteEditor
+    ? editors.map((editor) =>
+        editor.id === 'cursor' ? { ...editor, available: true } : editor,
+      )
+    : editors;
+
+  const available = effectiveEditors.filter((e) => e.available);
+  const unavailable = effectiveEditors.filter((e) => !e.available);
   const preferred = readPreferred();
   const primary =
     available.find((e) => e.id === preferred) ?? available[0] ?? null;
@@ -457,6 +516,13 @@ export function HandoffButton({
     setBusy(editor.id);
     writePreferred(editor.id);
     try {
+      if (remoteEditor?.kind === 'cursor-ssh' && editor.id === 'cursor') {
+        const uri = cursorRemoteUri(remoteEditor, projectDir, projectId);
+        window.location.assign(uri);
+        setOpen(false);
+        return;
+      }
+
       await openProjectInEditor(projectId, editor.id, workspaceContext);
       setOpen(false);
     } catch (err) {

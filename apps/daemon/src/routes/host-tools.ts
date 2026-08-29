@@ -23,6 +23,7 @@ import type {
   HostEditorId,
   HostEditorsResponse,
   OpenProjectInEditorResponse,
+  RemoteEditorHandoff,
 } from '@open-design/contracts';
 import type { RouteDeps } from '../server-context.js';
 import type { AuthorizeProjectRequest } from '../collab/project-request-authority.js';
@@ -321,7 +322,26 @@ export function registerHostToolsRoutes(app: Express, ctx: RegisterHostToolsRout
           };
         }),
       );
-      const body: HostEditorsResponse = { editors, platform };
+      const remoteHost = process.env.OD_REMOTE_EDITOR_HOST?.trim();
+      const remoteProjectsDir = process.env.OD_REMOTE_PROJECTS_DIR?.trim();
+
+      const remoteEditor: RemoteEditorHandoff | undefined =
+        remoteHost &&
+        remoteProjectsDir &&
+        path.isAbsolute(remoteProjectsDir)
+          ? {
+              kind: 'cursor-ssh',
+              host: remoteHost,
+              projectsDir: path.normalize(remoteProjectsDir),
+              containerProjectsDir: path.normalize(PROJECTS_DIR),
+            }
+          : undefined;
+
+      const body: HostEditorsResponse = {
+        editors,
+        platform,
+        ...(remoteEditor ? { remoteEditor } : {}),
+      };
       res.json(body);
     } catch (err) {
       sendApiError(res, 500, 'INTERNAL_ERROR', String(err));

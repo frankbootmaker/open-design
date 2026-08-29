@@ -43,9 +43,17 @@ export interface HostEditor {
   platforms?: Array<'darwin' | 'win32' | 'linux'>;
 }
 
+export interface RemoteEditorHandoff {
+  kind: 'cursor-ssh';
+  host: string;
+  projectsDir: string;
+  containerProjectsDir: string;
+}
+
 export interface HostEditorsResponse {
   editors: HostEditor[];
   platform: 'darwin' | 'win32' | 'linux' | 'unknown';
+  remoteEditor?: RemoteEditorHandoff;
 }
 
 export interface OpenProjectInEditorRequest {
