@@ -1,0 +1,9 @@
+{
+  "name": "open-design-headless-renderer",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright": "1.60.0",
+    "sharp": "0.34.3"
+  }
+}
