@@ -1095,6 +1095,11 @@ export async function exportProjectImageDataUrl(opts: {
   deck?: boolean;
   width?: number;
   height?: number;
+  viewportOnly?: boolean;
+  scrollX?: number;
+  scrollY?: number;
+  canvasScrollX?: number;
+  canvasScrollY?: number;
   versionId?: string;
   workspaceContext?: WorkspaceCollabContext | null;
 }): Promise<ProjectImageExportResult> {
@@ -1115,6 +1120,11 @@ export async function exportProjectImageDataUrl(opts: {
         ...(typeof opts.deck === 'boolean' ? { deck: opts.deck } : {}),
         ...(typeof opts.width === 'number' ? { width: opts.width } : {}),
         ...(typeof opts.height === 'number' ? { height: opts.height } : {}),
+        ...(opts.viewportOnly === true ? { viewportOnly: true } : {}),
+        ...(typeof opts.scrollX === 'number' ? { scrollX: opts.scrollX } : {}),
+        ...(typeof opts.scrollY === 'number' ? { scrollY: opts.scrollY } : {}),
+        ...(typeof opts.canvasScrollX === 'number' ? { canvasScrollX: opts.canvasScrollX } : {}),
+        ...(typeof opts.canvasScrollY === 'number' ? { canvasScrollY: opts.canvasScrollY } : {}),
         ...(opts.versionId ? { versionId: opts.versionId } : {}),
       }),
     });
