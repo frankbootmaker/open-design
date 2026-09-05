@@ -15193,11 +15193,11 @@ function HtmlViewer({
           ...(exportViewport?.height != null ? { height: exportViewport.height } : {}),
           ...(exportContext?.versionId ? { versionId: exportContext.versionId } : {}),
         });
-        if (rendered.ok) return rendered.snapshot;
+        if (rendered?.ok) return rendered.snapshot;
         // A semantic failure (e.g. "page is too tall — export as PDF") must surface,
         // NOT silently downgrade to a partial visible-viewport screenshot. Only when
         // the off-screen renderer is genuinely unavailable do we fall through.
-        if ('error' in rendered) {
+        if (rendered && 'error' in rendered) {
           // Attach the daemon's own code/status to the error so
           // `exportErrorCode` can report it verbatim instead of falling back
           // to message-regex guessing (and ultimately to the useless
@@ -15249,8 +15249,8 @@ function HtmlViewer({
           canvasScrollY: Math.max(0, scroll.canvasTop),
         });
 
-        if (rendered.ok) return rendered.snapshot;
-        if ('error' in rendered) throw new Error(rendered.error);
+        if (rendered?.ok) return rendered.snapshot;
+        if (rendered && 'error' in rendered) throw new Error(rendered.error);
       }
     }
 
