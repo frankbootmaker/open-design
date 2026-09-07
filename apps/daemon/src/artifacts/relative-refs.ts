@@ -34,6 +34,11 @@ const JS_REF_PATTERNS = [
 // `srcset` can list multiple comma-separated candidates.
 const SRCSET_PATTERN = /\bsrcset=["']([^"']+)["']/gi;
 
+// Public HTML snapshots may also represent a small multi-page site.
+// Navigation links are deliberately kept separate from runtime dependencies:
+// MCP artifact bundling must not start treating every <a href> as a dependency.
+const HTML_NAV_REF_PATTERN = /<a\b[^>]*\bhref=["']([^"']+)["']/gi;
+
 function isJsLike(mime: string | undefined, fromPath: string): boolean {
   if (mime && /javascript|typescript/i.test(mime)) return true;
   return /\.(?:m?jsx?|tsx?|cjs)$/i.test(fromPath);
@@ -47,6 +52,39 @@ function isCssLike(mime: string | undefined, fromPath: string): boolean {
 function isHtmlLike(mime: string | undefined, fromPath: string): boolean {
   if (mime && /^text\/html\b/i.test(mime)) return true;
   return /\.html?$/i.test(fromPath);
+}
+
+function resolveProjectLocalRef(
+  raw: string,
+  fromPath: string,
+  allowRootRelative: boolean,
+): string | null {
+  if (/^(?:https?:|\/\/|data:|mailto:|tel:|#)/i.test(raw)) return null;
+  if (!allowRootRelative && raw.startsWith('/')) return null;
+
+  const dir = fromPath.includes('/')
+    ? fromPath.slice(0, fromPath.lastIndexOf('/') + 1)
+    : '';
+
+  const resolved = raw.startsWith('/') ? raw.slice(1) : dir + raw;
+  const stripped = resolved.replace(/[?#].*$/, '');
+  const segments = stripped.split('/').filter(Boolean);
+
+  const out: string[] = [];
+
+  for (const segment of segments) {
+    if (segment === '.') continue;
+
+    if (segment === '..') {
+      if (out.length === 0) return null;
+      out.pop();
+      continue;
+    }
+
+    out.push(segment);
+  }
+
+  return out.length > 0 ? out.join('/') : null;
 }
 
 export function referenceMimeForPath(filePath: string): string | null {
@@ -106,36 +144,46 @@ export function extractRelativeRefs(
   }
 
   for (const raw of candidates) {
-    if (/^(?:https?:|\/\/|data:|mailto:|tel:|#)/i.test(raw)) continue;
+    const resolved = resolveProjectLocalRef(raw, fromPath, true);
+    if (resolved) refs.add(resolved);
+  }
 
-    const dir = fromPath.includes('/')
-      ? fromPath.slice(0, fromPath.lastIndexOf('/') + 1)
-      : '';
+  return [...refs];
+}
 
-    const resolved = raw.startsWith('/') ? raw.slice(1) : dir + raw;
-    const stripped = resolved.replace(/[?#].*$/, '');
-    const segments = stripped.split('/').filter(Boolean);
+/**
+ * Extract project-local HTML navigation targets for public multi-page snapshots.
+ *
+ * This is intentionally separate from extractRelativeRefs(): an anchor is a
+ * navigation edge, not a runtime dependency, and MCP artifact bundling should
+ * keep its existing behavior.
+ *
+ * Only relative .html/.htm links are followed. Root-relative links would point
+ * at the resource-hub origin rather than the snapshot root unless the HTML were
+ * rewritten, so those are deliberately excluded here.
+ */
+export function extractHtmlNavigationRefs(
+  text: string,
+  fromPath: string,
+  fromMime: string,
+): string[] {
+  if (!text || !isHtmlLike(fromMime, fromPath)) return [];
 
-    const out: string[] = [];
-    let escaped = false;
+  const refs = new Set<string>();
 
-    for (const segment of segments) {
-      if (segment === '.') continue;
+  for (const match of text.matchAll(HTML_NAV_REF_PATTERN)) {
+    const raw = (match[1] || '').trim();
+    if (!raw) continue;
 
-      if (segment === '..') {
-        if (out.length === 0) {
-          escaped = true;
-          break;
-        }
-        out.pop();
-        continue;
-      }
+    // Navigation schemes, protocol-relative URLs, fragments and root-relative
+    // URLs are not files belonging to this snapshot.
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#|\/)/i.test(raw)) continue;
 
-      out.push(segment);
-    }
+    const withoutQueryOrFragment = raw.replace(/[?#].*$/, '');
+    if (!/\.html?$/i.test(withoutQueryOrFragment)) continue;
 
-    if (escaped || out.length === 0) continue;
-    refs.add(out.join('/'));
+    const resolved = resolveProjectLocalRef(raw, fromPath, false);
+    if (resolved) refs.add(resolved);
   }
 
   return [...refs];

@@ -58,7 +58,11 @@ import {
 import { readVelaControlApiContext } from '../integrations/vela.js';
 import { isAbortedOperationError } from '../integrations/aborted-error.js';
 import { readProjectManifest } from '../project-locations.js';
-import { extractRelativeRefs, referenceMimeForPath } from '../artifacts/relative-refs.js';
+import {
+  extractHtmlNavigationRefs,
+  extractRelativeRefs,
+  referenceMimeForPath,
+} from '../artifacts/relative-refs.js';
 import { redactSecrets } from '../redact.js';
 import { findRealElementRange, HTML_TAG_PATTERNS } from '@open-design/contracts/runtime/html-injection-points';
 
@@ -548,9 +552,23 @@ async function writePublicBundleFile(
   await writeFile(targetFile, data);
 }
 
+function publicFileBundleRefs(
+  text: string,
+  filePath: string,
+  mime: string,
+): string[] {
+  return [
+    ...new Set([
+      ...extractRelativeRefs(text, filePath, mime),
+      ...extractHtmlNavigationRefs(text, filePath, mime),
+    ]),
+  ];
+}
+
 /**
  * Stage the requested public entry plus its transitive project-local runtime
- * dependencies. Unrelated project files remain private.
+ * dependencies and relative HTML navigation targets. Unrelated project files
+ * remain private.
  *
  * Every dependency is passed through resolvePublicSourceFile(), so symlinks
  * cannot escape the project root. Missing/broken dependencies are skipped just
@@ -569,7 +587,7 @@ async function stagePublicFileBundle(
   if (!entryMime) return;
 
   const visited = new Set<string>([entryPath]);
-  let frontier = extractRelativeRefs(
+  let frontier = publicFileBundleRefs(
     entryData.toString('utf8'),
     entryPath,
     entryMime,
@@ -577,7 +595,7 @@ async function stagePublicFileBundle(
 
   for (
     let depth = 1;
-    depth < PUBLIC_FILE_BUNDLE_MAX_DEPTH && frontier.length > 0;
+    depth <= PUBLIC_FILE_BUNDLE_MAX_DEPTH && frontier.length > 0;
     depth += 1
   ) {
     const next: string[] = [];
@@ -604,7 +622,7 @@ async function stagePublicFileBundle(
       const mime = referenceMimeForPath(refPath);
       if (!mime) continue;
 
-      const refs = extractRelativeRefs(data.toString('utf8'), refPath, mime);
+      const refs = publicFileBundleRefs(data.toString('utf8'), refPath, mime);
       for (const ref of refs) {
         if (!visited.has(ref)) next.push(ref);
       }

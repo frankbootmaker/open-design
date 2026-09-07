@@ -1969,6 +1969,141 @@ describe('collab sync routes', () => {
     expect(privateIncluded).toBe(false);
   });
 
+  it('publishes linked local HTML pages and their assets without exposing unrelated pages', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'od-public-file-pages-'));
+    tempDirs.push(dir);
+
+    await mkdir(path.join(dir, 'pages'), { recursive: true });
+    await mkdir(path.join(dir, 'images'), { recursive: true });
+
+    const aboutImageBytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
+    const contactImageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+
+    await writeFile(
+      path.join(dir, 'index.html'),
+      [
+        '<a href="pages/about.html#team">About</a>',
+        '<a href="/root-only.html">Root-relative</a>',
+        '<a href="https://example.test/external.html">External</a>',
+      ].join(''),
+    );
+
+    await writeFile(
+      path.join(dir, 'pages/about.html'),
+      [
+        '<h1 id="team">About</h1>',
+        '<img src="../images/about.jpg">',
+        '<a href="contact.html?from=about#form">Contact</a>',
+      ].join(''),
+    );
+
+    await writeFile(
+      path.join(dir, 'pages/contact.html'),
+      '<h1 id="form">Contact</h1><img src="../images/contact.png">',
+    );
+
+    await writeFile(path.join(dir, 'images/about.jpg'), aboutImageBytes);
+    await writeFile(path.join(dir, 'images/contact.png'), contactImageBytes);
+
+    // These exist in the project but must not become public merely because
+    // another HTML page was published.
+    await writeFile(path.join(dir, 'draft.html'), '<h1>Private draft</h1>');
+    await writeFile(path.join(dir, 'root-only.html'), '<h1>Root only</h1>');
+
+    vi.mocked(readVelaControlApiContext).mockReturnValue({
+      profile: 'test',
+      apiUrl: 'https://hub.example.test',
+      controlKey: 'ctrl-test',
+      user: null,
+      configMtimeMs: null,
+    });
+
+    let pushedIndex: string | null = null;
+    let pushedAbout: string | null = null;
+    let pushedContact: string | null = null;
+    let pushedAboutImage: Buffer | null = null;
+    let pushedContactImage: Buffer | null = null;
+    let draftIncluded = false;
+    let rootOnlyIncluded = false;
+
+    vi.mocked(runVelaResourceCommand).mockImplementation(async (args) => {
+      if (args[0] === 'push') {
+        const pushedDir = String(args[3]);
+
+        pushedIndex = await readFile(path.join(pushedDir, 'index.html'), 'utf8');
+        pushedAbout = await readFile(
+          path.join(pushedDir, 'pages/about.html'),
+          'utf8',
+        );
+        pushedContact = await readFile(
+          path.join(pushedDir, 'pages/contact.html'),
+          'utf8',
+        );
+        pushedAboutImage = await readFile(
+          path.join(pushedDir, 'images/about.jpg'),
+        );
+        pushedContactImage = await readFile(
+          path.join(pushedDir, 'images/contact.png'),
+        );
+
+        try {
+          await readFile(path.join(pushedDir, 'draft.html'));
+          draftIncluded = true;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+
+        try {
+          await readFile(path.join(pushedDir, 'root-only.html'));
+          rootOnlyIncluded = true;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+
+        return JSON.stringify({ version: 1 });
+      }
+
+      if (args[0] === 'snapshot') {
+        return JSON.stringify({
+          slug: 'linked-pages-slug',
+          name: 'index.html',
+          kind: 'project',
+          versionId: 'v1',
+          createdAt: new Date(1).toISOString(),
+        });
+      }
+
+      return JSON.stringify({ version: 1 });
+    });
+
+    const api = await startSyncServer(personalContextProvider(), {
+      resolveProjectDir: () => dir,
+      resolveSharedProject: async () => null,
+    });
+
+    const publish = await api.json(
+      '/api/projects/p1/files/index.html/publish-public',
+      { method: 'POST' },
+    );
+
+    expect(publish.status).toBe(200);
+    expect(publish.body).toEqual({
+      url: 'https://hub.example.test/api/v1/public/snapshots/linked-pages-slug/files/index.html',
+      slug: 'linked-pages-slug',
+      fileName: 'index.html',
+    });
+
+    // The original URLs stay untouched; publication only supplies the files.
+    expect(pushedIndex).toContain('pages/about.html#team');
+    expect(pushedAbout).toContain('contact.html?from=about#form');
+    expect(pushedContact).toContain('../images/contact.png');
+    expect(pushedAboutImage).toEqual(aboutImageBytes);
+    expect(pushedContactImage).toEqual(contactImageBytes);
+
+    expect(draftIncluded).toBe(false);
+    expect(rootOnlyIncluded).toBe(false);
+  });
+
   it('keeps public file ownership reads on request workspace A while ambient workspace B is active', async () => {
     const workspaceA = teamContext('workspace-a', 'member-a');
     const dir = await mkdtemp(path.join(tmpdir(), 'od-public-file-'));
